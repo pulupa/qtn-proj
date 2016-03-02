@@ -22,7 +22,7 @@ rcParams['xtick.direction'] = 'out'; rcParams['ytick.direction'] = 'out';
 
 matplotlib.rc('text', usetex=True)
 
-qtn_dir = '/Users/pulupa/Documents/qtn-proj/'
+qtn_dir = '/Users/pulupa/Documents/qtn-proj-rxn-fork/'
 
 sys.path.append(qtn_dir)
 
@@ -33,7 +33,7 @@ from qtn.bimax import BiMax
 Load IDL save file data
 """
 
-tnr_dat = readsav(qtn_dir + 'data/tnr_dat_20070507.sav')
+tnr_dat = readsav(qtn_dir + 'data/tnr_cal_dat_20070507.sav')
 
 tnr_lfnoise_ind = [10379, 10380, 10381, 10421, 10422]
 
