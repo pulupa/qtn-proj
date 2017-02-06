@@ -27,11 +27,12 @@ matplotlib.rc('text', usetex=True)
 
 qtn_dir = '/Users/pulupa/Documents/qtn-proj-rxn-fork/'
 
-qtn_dir = '/Users/pulupa/box/reconnection/'
-
 sys.path.append(qtn_dir)
 
 from qtn.bimax import BiMax
+
+qtn_dir = '/Users/pulupa/box/reconnection/'
+
 
 #%%
 """
@@ -134,7 +135,7 @@ evdf_txt = qtn_dir + date + '/' + date + '_evdf_data.txt'
 
 evdf_dat = np.genfromtxt(evdf_txt, dtype = None, names = True)
 
-evdf_all_times = [datetime.strptime(time, tfmt) for time in evdf_dat['Time']]
+evdf_all_times = [datetime.strptime(time.decode("utf-8"), tfmt) for time in evdf_dat['Time']]
 
 evdf_all_inds = [evdf_all_times.index(min(evdf_all_times, 
                                           key=lambda dt:abs(dt-evdf_time))) \
@@ -474,8 +475,8 @@ for i in [0,1,2]:
     plt.plot(nn_ne_interval[ind], t_pl_all[ind], 'o')
 #plt.plot(ne, tc, 'x')
 plt.ylim([5, 20])
-plt.xlabel(r'$n_e\:[\mathrm{cm^{-3}]$')
-plt.ylabel(r'$T_c\:[\mathrm{eV}]$')
+plt.xlabel('$n_e\:[\mathrm{cm^{-3}]$')
+plt.ylabel('$T_c\:[\mathrm{eV}]$')
 
 plt.title('Electron thermal noise level $V^2\:[10^{-15}\:\mathrm{V^2Hz^{-1}}]$ \n at flat region of thermal noise spectrum ($f/f_p = 0.5$)')
 
