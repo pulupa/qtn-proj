@@ -33,7 +33,37 @@ from qtn.bimax import BiMax
 
 qtn_dir = '/Users/pulupa/box/reconnection/'
 
+#%%
 
+def datestr_to_datetime(date_string):
+
+    if isinstance(date_string,(np.generic)):
+        date_string = date_string.decode("utf-8")
+    
+    if not isinstance(date_string, str):
+        parsed_datetimes = [datestr_to_datetime(ds) for ds in date_string]
+        return(parsed_datetimes)
+
+    try:
+        parsed_datetime = datetime.strptime(date_string, '%Y-%m-%d/%H:%M:%S.%f')
+    except ValueError:
+        parsed_datetime = datetime.strptime(date_string, '%Y-%m-%d/%H:%M:%S')
+    return(parsed_datetime)
+
+#%% 
+
+def find_nearest_time_ind(index_dts, search_dts):
+    
+    timedeltas = [min(index_dts, key = lambda dt:abs(dt - search_dt)) - search_dt \
+                                for search_dt in search_dts]
+    
+    ind = [index_dts.index(min(index_dts, 
+                               key = lambda dt:abs(dt - search_dt)))
+                                for search_dt in search_dts]
+    
+    
+    return ind, timedeltas
+    
 #%%
 """
 Select date for event
@@ -55,15 +85,24 @@ Load IDL save file data
 
 tnr_dat = readsav(qtn_dir + date + '/tnr_cal_dat_' + date + '.sav')
 
-tnr_lfnoise_ind = json_data['tnr_lfnoise_ind']
+# Turn TNR times from IDLSAV file into datetimes
 
 tnr_dts = []
 for tnr_unix in (tnr_dat['x']):
     tnr_dts.append(datetime.utcfromtimestamp(tnr_unix))
-    
-tnr_lfnoise_dts = [tnr_dts[i] for i in tnr_lfnoise_ind]    
-    
+
 tnr_f = tnr_dat['v']
+
+# Turn TNR LF noise times from JSON file into datetimes
+
+tnr_lfnoise_dts = datestr_to_datetime(json_data['tnr_lfnoise_ind'])
+    
+#tnr_lfnoise_ind = [tnr_dts.index(min(tnr_dts, key=lambda dt:abs(dt-tnr_lfnoise_dt))) \
+#                   for tnr_lfnoise_dt in tnr_lfnoise_dts]
+
+tnr_lfnoise_ind, tnr_lfnoise_delta = find_nearest_time_ind(tnr_dts,tnr_lfnoise_dts)
+    
+# Read neural network data from IDL save file
 
 nn_dat = readsav(qtn_dir + date + '/nn_dat_' + date + '.sav')
 
@@ -80,36 +119,25 @@ Input datetimes
 
 js_t = json_data['time_intervals']
 
-tfmt = '%Y-%m-%d/%H:%M:%S'
+strt_t, stop_t = datestr_to_datetime([js_t['t0_plot'],js_t['t1_plot']]) 
 
-strt_t = datetime.strptime(js_t['t0_plot'], tfmt) # overall 
-stop_t = datetime.strptime(js_t['t1_plot'], tfmt)
+exhaust_bounds = datestr_to_datetime([js_t['t0_exhaust'],js_t['t1_exhaust']])
 
-exhaust_bounds = [datetime.strptime(js_t['t0_exhaust'], tfmt),
-                  datetime.strptime(js_t['t1_exhaust'], tfmt)]
+evdf_times = datestr_to_datetime([json_data['evdf_example_times']['up'],
+                                  json_data['evdf_example_times']['in'],
+                                  json_data['evdf_example_times']['dn']])
 
-evdf_times = [datetime.strptime(json_data['evdf_example_times']['up'], tfmt),
-              datetime.strptime(json_data['evdf_example_times']['in'], tfmt),
-              datetime.strptime(json_data['evdf_example_times']['dn'], tfmt)]
+t_up = datestr_to_datetime([js_t['t0_up'],js_t['t1_up']])
+t_in = datestr_to_datetime([js_t['t0_in'],js_t['t1_in']])
+t_dn = datestr_to_datetime([js_t['t0_dn'],js_t['t1_dn']])
 
-t_up = [datetime.strptime(js_t['t0_up'], tfmt), 
-        datetime.strptime(js_t['t1_up'], tfmt)]
-
-t_in = [datetime.strptime(js_t['t0_in'], tfmt), 
-        datetime.strptime(js_t['t1_in'], tfmt)]
-
-t_dn = [datetime.strptime(js_t['t0_dn'], tfmt), 
-        datetime.strptime(js_t['t1_dn'], tfmt)]
-
-tnr_inds = [tnr_dts.index(min(tnr_dts, key=lambda dt:abs(dt-evdf_time))) \
-   for evdf_time in evdf_times]
+tnr_inds, tnr_timedeltas = find_nearest_time_ind(tnr_dts, evdf_times)
 
 tnr_v2 = np.square(tnr_dat['y'][:,tnr_inds])
 
 tnr_times = [tnr_dts[ind] for ind in tnr_inds]
 
-nn_inds = [nn_dts.index(min(nn_dts, key=lambda dt:abs(dt-evdf_time))) \
-    for evdf_time in evdf_times]
+nn_inds, nn_timedeltas = find_nearest_time_ind(nn_dts, evdf_times)
 
 nn_ne_evdfs = nn_ne[nn_inds]
 
@@ -135,17 +163,14 @@ evdf_txt = qtn_dir + date + '/' + date + '_evdf_data.txt'
 
 evdf_dat = np.genfromtxt(evdf_txt, dtype = None, names = True)
 
-evdf_all_times = [datetime.strptime(time.decode("utf-8"), tfmt) for time in evdf_dat['Time']]
+evdf_all_times = datestr_to_datetime(evdf_dat['Time'])
 
-evdf_all_inds = [evdf_all_times.index(min(evdf_all_times, 
-                                          key=lambda dt:abs(dt-evdf_time))) \
-   for evdf_time in evdf_times]
+evdf_all_inds = find_nearest_time_ind(evdf_all_times, evdf_times)[0]
 
 vsw = evdf_dat['v_sw'][evdf_all_inds] * 1.e3
 
 nc = evdf_dat['n_core'][evdf_all_inds]
 nh = evdf_dat['n_halo'][evdf_all_inds]
-
 
 tc = ((evdf_dat['tper_core']*2 + evdf_dat['tpar_core'])/3)[evdf_all_inds]
 th = ((evdf_dat['tper_halo']*2 + evdf_dat['tpar_halo'])/3)[evdf_all_inds]
@@ -269,21 +294,15 @@ restored_file = ''
 
 annot_str = "P   ne   te    tnr_min   nn_fp    file    ix  tnr_minf  pnoise    gain tnr_dt    en0   enf    plat" 
 
+fig = plt.figure(figsize=(5, 30))
+
+ax = fig.add_subplot(1,1,1)
+
 for i, ind in enumerate(tnr_fpind_interval):
     
-    #print(min([abs(x - tnr_dt_interval[i]) for x in tnr_lfnoise_dts]))
     tnr_dt_position = -1
-    
-    dt_i = tnr_dt_interval[i]   
-    
-    if dt_i > t_up[0] and dt_i < t_up[1]:
-        tnr_dt_position = 0
-    if dt_i > t_in[0] and dt_i < t_in[1]:
-        tnr_dt_position = 1
-    if dt_i > t_dn[0] and dt_i < t_dn[1]:
-        tnr_dt_position = 2
-        
-    tnr_dt_positions.append(tnr_dt_position)    
+
+    # Check for times of high LF noise
 
     if len(tnr_lfnoise_dts) == 0:
         tnr_lfnoise_delta = None;        
@@ -291,6 +310,42 @@ for i, ind in enumerate(tnr_fpind_interval):
         tnr_lfnoise_delta = (
             min([abs(x - tnr_dt_interval[i]) for x in tnr_lfnoise_dts])
             )
+            
+    dt_i = tnr_dt_interval[i]   
+
+    print(dt_i,tnr_lfnoise_delta, tnr_lfnoise_delta < timedelta(0,3))
+    
+    if dt_i > t_up[0] and dt_i < t_up[1]:
+        tnr_dt_position = 0
+        color = 'blue'
+    if dt_i > t_in[0] and dt_i < t_in[1]:
+        tnr_dt_position = 1
+        color = 'green'
+    if dt_i > t_dn[0] and dt_i < t_dn[1]:
+        tnr_dt_position = 2
+        color = 'red'
+
+    if (tnr_dt_position > -1):
+
+        snippet = tnr_v2_interval[ind-15:ind+5,i]
+        snippet_f = tnr_f[ind-15:ind+5]
+    
+        lw = 2
+    
+        if tnr_lfnoise_delta < timedelta(0,3):
+            color = 'black'
+    
+        line, = ax.plot(snippet_f,snippet*np.power(1.5,i), color = color, lw=lw)
+        ax.set_yscale('log')
+        ax.set_xscale('log')
+
+    
+#%%    
+    
+    #print(min([abs(x - tnr_dt_interval[i]) for x in tnr_lfnoise_dts]))
+        
+    tnr_dt_positions.append(tnr_dt_position)    
+
         
     if (tnr_dt_position > -1) and tnr_lfnoise_delta != timedelta(0):
 
@@ -475,7 +530,7 @@ for i in [0,1,2]:
     plt.plot(nn_ne_interval[ind], t_pl_all[ind], 'o')
 #plt.plot(ne, tc, 'x')
 plt.ylim([5, 20])
-plt.xlabel('$n_e\:[\mathrm{cm^{-3}]$')
+plt.xlabel('$n_e\:[\mathrm{cm^{-3}}]$')
 plt.ylabel('$T_c\:[\mathrm{eV}]$')
 
 plt.title('Electron thermal noise level $V^2\:[10^{-15}\:\mathrm{V^2Hz^{-1}}]$ \n at flat region of thermal noise spectrum ($f/f_p = 0.5$)')
