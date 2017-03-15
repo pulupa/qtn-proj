@@ -15,6 +15,7 @@ from scipy.interpolate import RectBivariateSpline
 import json
 from pprint import pprint
 import os.path
+import sys
 
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
@@ -22,15 +23,18 @@ rcParams['xtick.direction'] = 'out'; rcParams['ytick.direction'] = 'out';
 matplotlib.rc('text', usetex=True)
 rcParams["text.latex.preview"] = True
 
-#qtn_code_dir = '/Users/pulupa/Documents/qtn-proj-rxn-fork/'
-
-#sys.path.append(qtn_code_dir)
-
 #from qtn.bimax import BiMax
 
 qtn_dir = '/Users/pulupa/box/reconnection/'
 
 #%%
+"""
+Load the utilities programs
+"""
+
+qtn_code_dir = '/Users/pulupa/Documents/qtn-proj-rxn-fork/'
+
+sys.path.append(qtn_code_dir)
 
 from wind_rxn_qtn_utils import datestr_to_datetime, \
                                 find_nearest_time_ind, \
@@ -71,7 +75,8 @@ tnr_f = tnr_dat['v']
 
 tnr_lfnoise_dts = datestr_to_datetime(json_data['tnr_lfnoise_ind'])
     
-tnr_lfnoise_ind, tnr_lfnoise_delta = find_nearest_time_ind(tnr_dts, tnr_lfnoise_dts)
+tnr_lfnoise_ind, tnr_lfnoise_delta = find_nearest_time_ind(tnr_dts, 
+                                                           tnr_lfnoise_dts)
     
 # Read neural network data from IDL save file
 
@@ -184,18 +189,29 @@ enoise_ratio = []
       
 restored_file = ''
 
-annot_str = "P   ne   te    tnr_min   nn_fp    file    ix  tnr_minf  pnoise    gain tnr_dt    en0   enf    plat    Δlf" 
+annot_str = "               tnrmn  nn_fp                minf      " + \
+    "pnoise    gain tnr_dt    en0   enf    plat    Δlf\n" + \
+            "P   ne   te    uV2/Hz  kHz   file   ix      kHz  " + \
+    "pnoise    gain tnr_dt    en0   enf    plat    Δlf" 
 
-#%%
+# Create figure for plot of TNR snippets
 
 fig = plt.figure(figsize=(5, 30))
 
 ax = fig.add_subplot(1,1,1)
 
+# Loop through TNR spectra
+
 for i, ind in enumerate(tnr_fpind_interval):
     
     dt_i = tnr_dt_interval[i]   
     tnr_dt_position = -1
+    
+    # Select a portion of the TNR spectrum which includes the plasma peak
+    # as well as the plateau below the peak.
+    
+    snippet = tnr_v2_interval[ind-15:ind+5,i]
+    snippet_f = tnr_f[ind-15:ind+5]
 
     # Check for times of high LF noise
 
@@ -227,37 +243,37 @@ for i, ind in enumerate(tnr_fpind_interval):
 
     if (tnr_dt_position > -1):
 
-        snippet = tnr_v2_interval[ind-15:ind+5,i]
-        snippet_f = tnr_f[ind-15:ind+5]
-        
         if tnr_lfnoise_delta < timedelta(0,3):
             color = 'black'
     
-        line, = ax.plot(snippet_f,snippet*np.power(1.5,i), color = color)
+        line, = ax.plot(snippet_f,snippet*np.power(1.5,i),color = color)
         ax.plot(tnr_f[tnr_fpind_interval[i]],
                 tnr_v2_interval[tnr_fpind_interval[i],i]*np.power(1.5,i),
                 'o', color = color)
         ax.set_yscale('log')
         ax.set_xscale('log')
-                
-        
+       
     if (tnr_dt_position > -1) and tnr_lfnoise_delta != timedelta(0):
 
-        snippet = tnr_v2_interval[ind-15:ind+3,i]
-        snippet_f = tnr_f[ind-15:ind+3]
-       
+        # Find the minimum V2/Hz in the plateau region.
+        
         tnr_v2_min_ind_i = np.argmin(snippet)
         tnr_v2_min_i = snippet[tnr_v2_min_ind_i]
         #tnr_v2_min_i = (np.average(snippet[8:11]))
-        
         tnr_v2_min.append(tnr_v2_min_i)
+
+        # Find the frequency for the minimum
     
         tnr_v2_min_f_i = snippet_f[tnr_v2_min_ind_i]
-        
         tnr_v2_min_f.append(tnr_v2_min_f_i)
-                
+
+        # Find the n_e and t_c for normalization (the n_e and t_c from the
+        # eVDF fit in the upstream/exhaust/downstream region)
+
         ne_norm = ne[tnr_dt_position]   
         tc_norm = tc[tnr_dt_position]
+        
+        # Load the calculated QTN file for the eVDF
         
         time_str = tnr_plot_times[tnr_dt_position].strftime("%Y%m%d_%H%M%S")
         qtn_file = qtn_dir + date + '/qtn_spec_' + time_str
@@ -272,35 +288,48 @@ for i, ind in enumerate(tnr_fpind_interval):
                 electron_noise = qtn_saved_data['e_noise']            
                 restored_file = qtn_file
             
+            # Interpolate (in log-log space) the gain at the plateau frequency
+            
             gain_interp = interp1d(np.log10(fbins),
                                    np.log10([float(x) for x in gain]))               
-    
             gain_int_f = np.log10(tnr_v2_min_f_i)
-    
             gain_int_val = np.power(10.0, gain_interp(gain_int_f))
-    
             gain_min.append(gain_int_val)
     
-            pnoise_interp = interp1d(np.log10(fbins), 
-                                     np.log10([float(x) for x in proton_noise]))        
-                            
-                    
-            pnoise_int_f = np.log10(tnr_v2_min_f_i)
-                    
-            pnoise_int_val = np.power(10.0, pnoise_interp(pnoise_int_f)) * 1e12        
-                    
-            pnoise_v2_min.append(pnoise_int_val)
+            # Interpolate (in log-log space) proton noise at plateau frequency
     
-            enoise_interp = interp1d(np.log10(fbins),
-                                     np.log10([float(x) for x in electron_noise]))        
+            pnoise_interp = \
+                interp1d(np.log10(fbins), 
+                         np.log10([float(x) for x in proton_noise]))        
+            pnoise_int_f = np.log10(tnr_v2_min_f_i)
+            pnoise_int_val = np.power(10.0, pnoise_interp(pnoise_int_f)) * 1e12        
+            pnoise_v2_min.append(pnoise_int_val)
             
-            #enoise_int_f = np.log10([fbins[0], tnr_v2_min_f_i])        
-            #enoise_int_f = np.log10([tnr_v2_min_f_i/2., tnr_v2_min_f_i])    
-            enoise_int_f = np.log10(9.e3 * np.sqrt(ne_norm) * np.asarray([0.5, tnr_v2_min_f_i/nn_fp_interval[i]]))    
+            # The level of the electron noise plateau gives us the temperature.
+            # Specifically, we interpolate to the contours on the 2D plateau 
+            # map, whose contours are generated by calculating the level of 
+            # the spectrum at 0.5 fp.  The minimum in the measured spectra,
+            # however, does not occur precisely at 0.5 fp.  So to convert
+            # the minimum (measured) to the value at 0.5 fp, we calculate the
+            # electron noise spectrum both at the measured f and at exactly
+            # 0.5 fp.  We then use the ratio of those calculated values to 
+            # adjust the measured value.
             
-            enoise_int_vals = np.power(10.0, enoise_interp(enoise_int_f)) * 1e12        
+            enoise_interp = \
+                interp1d(np.log10(fbins),
+                         np.log10([float(x) for x in electron_noise]))        
+            
+            # old versions
+            # enoise_int_f = np.log10([fbins[0], tnr_v2_min_f_i])        
+            # enoise_int_f = np.log10([tnr_v2_min_f_i/2., tnr_v2_min_f_i])    
+            
+            enoise_int_f = \
+                np.log10(9.e3 * np.sqrt(ne_norm) * 
+                         np.asarray([0.5, tnr_v2_min_f_i/nn_fp_interval[i]]))    
+            
+            enoise_ints = np.power(10.0, enoise_interp(enoise_int_f)) * 1e12        
                     
-            enoise_ratio_i = enoise_int_vals[0]/enoise_int_vals[1]
+            enoise_ratio_i = enoise_ints[0]/enoise_ints[1]
             
             enoise_ratio.append(enoise_ratio_i)       
             
@@ -310,13 +339,15 @@ for i, ind in enumerate(tnr_fpind_interval):
             pnoise_int_val = np.nan
             enoise_ratio.append(np.nan)
             gain_min.append(np.nan)
-            
+        
+        # Print an output summary string for each measurement
+        
         tempstr = (
             "{0:1d} "
             "{1:5.1f} "
             "{2:5.1f} " 
-            "{3:9.2e} "
-            "{4:9.2e} " 
+            "{3:7.4f} "
+            "{4:5.2f} " 
             "{5:s} "
             "{6:3d} "
             "{7:9.2e} "
@@ -331,22 +362,24 @@ for i, ind in enumerate(tnr_fpind_interval):
                     ne_norm,                                            #  1
                     tc_norm,                                            #  2
                     tnr_v2_min_i,                                       #  3
-                    nn_fp_interval[i],                                  #  4
+                    nn_fp_interval[i]/1.e3,                             #  4
                     os.path.basename(qtn_file)[-6:],                    #  5
                     ind,                                                #  6
                     tnr_v2_min_f_i,                                     #  7
                     pnoise_int_val,                                     #  8
                     gain_int_val,                                       #  9
                     tnr_dt_interval[i].strftime("%H:%M:%S"),            # 10
-                    enoise_int_vals[0] * 1.e2 / gain_int_val,           # 11
-                    enoise_int_vals[1] * 1.e2 / gain_int_val,           # 12
+                    enoise_ints[0] * 1.e2 / gain_int_val,               # 11
+                    enoise_ints[1] * 1.e2 / gain_int_val,               # 12
                     ((tnr_v2_min_i * gain_int_val - pnoise_int_val)     # 13
-                    * 1.e2 * enoise_int_vals[0]/enoise_int_vals[1]),
+                    * 1.e2 * enoise_ints[0]/enoise_ints[1]),
                     tnr_lfnoise_delta.total_seconds()))                 # 14
        
         print(tempstr)
     
     else:
+        
+        # Print a dummy string for each measurement contaminated by LF noise
         
         tempstr = (
             "{0:1s} "
@@ -382,7 +415,7 @@ for i, ind in enumerate(tnr_fpind_interval):
 
         print(tempstr)
         
-        # Append data from each event
+        # Append data from each event to the lists
         
         tnr_v2_min.append(np.nan)
         pnoise_v2_min.append(np.nan)
@@ -399,6 +432,8 @@ tnr_v2_min = np.asarray(tnr_v2_min)
 gain_min = np.asarray(gain_min)
 pnoise_v2_min = np.asarray(pnoise_v2_min)
 enoise_ratio = np.asarray(enoise_ratio)
+
+# Calculate the V2 value of the 
 
 plateau_v2 = (tnr_v2_min * gain_min - pnoise_v2_min) * enoise_ratio
 
